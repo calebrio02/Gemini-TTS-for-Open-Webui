@@ -1,0 +1,18 @@
+services:
+  tts-proxy:
+    build: .
+    container_name: tts-proxy
+    restart: unless-stopped
+    ports:
+      - "3500:3500"
+    environment:
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - PORT=3500
+      - HOST=0.0.0.0
+      - DEFAULT_VOICE=Kore
+      - LOG_LEVEL=info
+    healthcheck:
+      test: [ "CMD", "wget", "-q", "--spider", "http://localhost:3500/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
