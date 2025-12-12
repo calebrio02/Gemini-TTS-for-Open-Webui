@@ -76,12 +76,11 @@ app.post('/v1/audio/speech', async (req, res) => {
 
         const contentType = getContentType(response_format);
 
-if (stream) {
+        if (stream) {
             // Streaming response
             res.set('Content-Type', contentType);
             res.set('Transfer-Encoding', 'chunked');
 
-            // --- [INSERT START] ---
             // 1. Create the AbortController
             const controller = new AbortController();
             const signal = controller.signal;
@@ -91,7 +90,6 @@ if (stream) {
                 logger.info('Client disconnected, aborting TTS generation');
                 controller.abort();
             });
-            // --- [INSERT END] ---
 
             let bytesSent = 0;
 
@@ -122,13 +120,12 @@ if (stream) {
                 }
             );
 
-            // --- [REPLACE THIS BLOCK] ---
             // 3. Stream from Gemini with signal and abort check
             try {
                 await generateSpeechStream(input, geminiVoice, GEMINI_API_KEY, async (pcmChunk) => {
                     if (signal.aborted) return; // Stop writing if aborted
                     converter.write(pcmChunk);
-                }, signal); // <--- Pass the signal here
+                }, signal);
 
                 converter.end();
             } catch (err) {
@@ -139,9 +136,8 @@ if (stream) {
                 }
                 throw err;
             }
-            // --- [REPLACEMENT END] ---
 
-        } else {} else {
+        } else {
             // Non-streaming response (original behavior)
             const pcmBuffer = await generateSpeech(input, geminiVoice, GEMINI_API_KEY);
             const audioBuffer = await convertAudio(pcmBuffer, response_format);
@@ -202,4 +198,3 @@ app.listen(PORT, HOST, () => {
         logger.info('Gemini API key configured');
     }
 });
-
