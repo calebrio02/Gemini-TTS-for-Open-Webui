@@ -9,15 +9,14 @@ const logger = require('./logger');
 const GEMINI_TTS_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent';
 const GEMINI_TTS_STREAM_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:streamGenerateContent';
 
+// Helper function to delay execution
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
 /**
  * Generate speech using Gemini TTS API (non-streaming)
- * 
- * @param {string} text - Text to convert to speech
- * @param {string} voiceName - Gemini voice name (e.g., 'Kore', 'Charon')
- * @param {string} apiKey - Gemini API key
- * @returns {Promise<Buffer>} - Raw PCM audio buffer (s16le, 24000Hz, mono)
+ * Includes retry logic for 5xx errors
  */
-async function generateSpeech(text, voiceName, apiKey) {
+async function generateSpeech(text, voiceName, apiKey, retries = 3) {
     if (!apiKey) {
         throw new Error('GEMINI_API_KEY is not configured');
     }
@@ -40,58 +39,77 @@ async function generateSpeech(text, voiceName, apiKey) {
         }
     };
 
-    logger.debug('Sending request to Gemini TTS API', {
-        text: text.substring(0, 100) + (text.length > 100 ? '...' : ''),
-        voiceName,
-        url: GEMINI_TTS_URL
-    });
+    let lastError;
+    
+    for (let attempt = 1; attempt <= retries; attempt++) {
+        try {
+            logger.debug(`Sending request to Gemini TTS API (Attempt ${attempt}/${retries})`, {
+                text: text.substring(0, 100) + (text.length > 100 ? '...' : ''),
+                voiceName,
+                url: GEMINI_TTS_URL
+            });
 
-    const startTime = Date.now();
+            const startTime = Date.now();
 
-    const response = await fetch(`${GEMINI_TTS_URL}?key=${apiKey}`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(requestBody)
-    });
+            const response = await fetch(`${GEMINI_TTS_URL}?key=${apiKey}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(requestBody)
+            });
 
-    const elapsed = Date.now() - startTime;
+            const elapsed = Date.now() - startTime;
 
-    if (!response.ok) {
-        const errorText = await response.text();
-        logger.error(`Gemini API error (${response.status})`, errorText);
-        throw new Error(`Gemini API error: ${response.status} - ${errorText}`);
+            if (!response.ok) {
+                const errorText = await response.text();
+                // If it's a server error (5xx), throw to trigger retry
+                if (response.status >= 500) {
+                    throw new Error(`Gemini API error: ${response.status} - ${errorText}`);
+                }
+                // For client errors (4xx), don't retry, just log and throw
+                logger.error(`Gemini API error (${response.status})`, errorText);
+                throw new Error(`Gemini API error: ${response.status} - ${errorText}`);
+            }
+
+            const data = await response.json();
+            logger.debug(`Gemini API response received in ${elapsed}ms`);
+
+            // Extract audio data from response
+            const audioData = data?.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+
+            if (!audioData) {
+                logger.error('No audio data in Gemini response', data);
+                throw new Error('No audio data received from Gemini API');
+            }
+
+            // Decode base64 to buffer
+            const pcmBuffer = Buffer.from(audioData, 'base64');
+            logger.info(`Generated ${pcmBuffer.length} bytes of PCM audio for "${text.substring(0, 50)}..." using voice ${voiceName}`);
+
+            return pcmBuffer;
+
+        } catch (error) {
+            lastError = error;
+            logger.warn(`Attempt ${attempt} failed: ${error.message}`);
+            
+            // If we have retries left, wait and continue
+            if (attempt < retries) {
+                const delay = attempt * 1000; // Linear backoff: 1s, 2s, 3s...
+                logger.info(`Retrying in ${delay}ms...`);
+                await sleep(delay);
+            }
+        }
     }
 
-    const data = await response.json();
-    logger.debug(`Gemini API response received in ${elapsed}ms`);
-
-    // Extract audio data from response
-    const audioData = data?.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-
-    if (!audioData) {
-        logger.error('No audio data in Gemini response', data);
-        throw new Error('No audio data received from Gemini API');
-    }
-
-    // Decode base64 to buffer
-    const pcmBuffer = Buffer.from(audioData, 'base64');
-    logger.info(`Generated ${pcmBuffer.length} bytes of PCM audio for "${text.substring(0, 50)}..." using voice ${voiceName}`);
-
-    return pcmBuffer;
+    throw lastError;
 }
 
 /**
  * Generate speech using Gemini TTS API with streaming (SSE)
- * * @param {string} text - Text to convert to speech
- * @param {string} voiceName - Gemini voice name
- * @param {string} apiKey - Gemini API key
- * @param {function} onChunk - Callback for each PCM chunk (Buffer)
- * @param {AbortSignal} [signal] - Optional abort signal to cancel the request
- * @returns {Promise<void>}
+ * Includes retry logic for 5xx errors on initial connection
  */
-async function generateSpeechStream(text, voiceName, apiKey, onChunk, signal) {
+async function generateSpeechStream(text, voiceName, apiKey, onChunk, signal, retries = 3) {
     if (!apiKey) {
         throw new Error('GEMINI_API_KEY is not configured');
     }
@@ -114,30 +132,60 @@ async function generateSpeechStream(text, voiceName, apiKey, onChunk, signal) {
         }
     };
 
-    logger.debug('Sending streaming request to Gemini TTS API', {
-        text: text.substring(0, 100) + (text.length > 100 ? '...' : ''),
-        voiceName,
-        url: GEMINI_TTS_STREAM_URL
-    });
+    let response;
+    let lastError;
 
-    const startTime = Date.now();
+    // Retry loop for the initial connection
+    for (let attempt = 1; attempt <= retries; attempt++) {
+        try {
+            logger.debug(`Sending streaming request to Gemini TTS API (Attempt ${attempt}/${retries})`, {
+                text: text.substring(0, 100) + (text.length > 100 ? '...' : ''),
+                voiceName,
+                url: GEMINI_TTS_STREAM_URL
+            });
 
-    // UPDATE 1: Pass 'signal' to fetch for cancellation support
-    const response = await fetch(`${GEMINI_TTS_STREAM_URL}?alt=sse&key=${apiKey}`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(requestBody),
-        signal 
-    });
+            // Pass 'signal' to fetch for cancellation support
+            response = await fetch(`${GEMINI_TTS_STREAM_URL}?alt=sse&key=${apiKey}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(requestBody),
+                signal 
+            });
 
-    if (!response.ok) {
-        const errorText = await response.text();
-        logger.error(`Gemini API streaming error (${response.status})`, errorText);
-        throw new Error(`Gemini API error: ${response.status} - ${errorText}`);
+            if (!response.ok) {
+                const errorText = await response.text();
+                if (response.status >= 500) {
+                    throw new Error(`Gemini API error: ${response.status} - ${errorText}`);
+                }
+                logger.error(`Gemini API streaming error (${response.status})`, errorText);
+                throw new Error(`Gemini API error: ${response.status} - ${errorText}`);
+            }
+
+            // If success, break the retry loop
+            break;
+
+        } catch (error) {
+            lastError = error;
+            // Don't retry if the user cancelled
+            if (error.name === 'AbortError' || signal?.aborted) {
+                throw error;
+            }
+
+            logger.warn(`Streaming attempt ${attempt} failed: ${error.message}`);
+            
+            if (attempt < retries) {
+                const delay = attempt * 1000;
+                logger.info(`Retrying stream in ${delay}ms...`);
+                await sleep(delay);
+            } else {
+                throw lastError;
+            }
+        }
     }
 
+    const startTime = Date.now();
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
@@ -197,7 +245,6 @@ async function generateSpeechStream(text, voiceName, apiKey, onChunk, signal) {
     } finally {
         reader.releaseLock();
     }
-    
 
     const elapsed = Date.now() - startTime;
     logger.info(`Streamed ${totalBytes} bytes of PCM audio in ${elapsed}ms for "${text.substring(0, 50)}..." using voice ${voiceName}`);
