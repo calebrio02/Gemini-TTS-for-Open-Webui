@@ -85,8 +85,9 @@ app.post('/v1/audio/speech', async (req, res) => {
             const controller = new AbortController();
             const signal = controller.signal;
 
-            // 2. Listen for client disconnect to trigger abort
-            req.on('close', () => {
+            // 2. Listen for response close (Client stopped listening)
+            // CHANGED: req.on('close') -> res.on('close') to avoid premature aborts
+            res.on('close', () => {
                 logger.info('Client disconnected, aborting TTS generation');
                 controller.abort();
             });
