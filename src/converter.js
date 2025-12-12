@@ -29,7 +29,7 @@ async function convertAudio(pcmBuffer, format = 'mp3') {
             '-ar', '24000',       // Input sample rate: 24000 Hz
             '-ac', '1',           // Input channels: mono
             '-i', 'pipe:0',       // Read from stdin
-            // Low latency flags for buffered conversion (less critical here but good practice)
+            // Low latency flags
             '-fflags', 'nobuffer',
             '-flags', 'low_delay',
             '-f', outputFormat,   // Output format
@@ -111,7 +111,6 @@ function createStreamConverter(format, onData, onEnd, onError) {
         // LOW LATENCY OPTIMIZATIONS
         '-fflags', 'nobuffer',    // Do not buffer headers
         '-flags', 'low_delay',    // Optimize for low delay
-        '-asio', '0',             // (Optional) Disable extra I/O buffering if applicable
         '-f', outputFormat,
     ];
 
