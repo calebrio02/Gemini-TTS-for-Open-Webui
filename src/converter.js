@@ -9,8 +9,7 @@ const logger = require('./logger');
 
 /**
  * Converts PCM audio buffer to the specified format using ffmpeg
- * 
- * @param {Buffer} pcmBuffer - Raw PCM audio data (s16le, 24000Hz, mono)
+ * * @param {Buffer} pcmBuffer - Raw PCM audio data (s16le, 24000Hz, mono)
  * @param {string} format - Target format: 'mp3', 'wav', 'opus', 'aac', 'flac', 'pcm'
  * @returns {Promise<Buffer>} - Converted audio buffer
  */
@@ -30,6 +29,9 @@ async function convertAudio(pcmBuffer, format = 'mp3') {
             '-ar', '24000',       // Input sample rate: 24000 Hz
             '-ac', '1',           // Input channels: mono
             '-i', 'pipe:0',       // Read from stdin
+            // Low latency flags
+            '-fflags', 'nobuffer',
+            '-flags', 'low_delay',
             '-f', outputFormat,   // Output format
         ];
 
@@ -84,15 +86,14 @@ async function convertAudio(pcmBuffer, format = 'mp3') {
 /**
  * Creates a streaming audio converter that converts PCM chunks to the target format
  * Returns a transform interface with write() and end() methods
- * 
- * @param {string} format - Target format: 'mp3', 'wav', 'opus', 'aac', 'flac', 'pcm'
+ * * @param {string} format - Target format: 'mp3', 'wav', 'opus', 'aac', 'flac', 'pcm'
  * @param {function} onData - Callback for converted audio chunks
  * @param {function} onEnd - Callback when conversion is complete
  * @param {function} onError - Callback for errors
  * @returns {object} - { write(chunk), end() }
  */
 function createStreamConverter(format, onData, onEnd, onError) {
-    // For PCM, just pass through
+    // For PCM, just pass through (Zero latency)
     if (format === 'pcm') {
         return {
             write: (chunk) => onData(chunk),
@@ -107,6 +108,9 @@ function createStreamConverter(format, onData, onEnd, onError) {
         '-ar', '24000',
         '-ac', '1',
         '-i', 'pipe:0',
+        // LOW LATENCY OPTIMIZATIONS
+        '-fflags', 'nobuffer',    // Do not buffer headers
+        '-flags', 'low_delay',    // Optimize for low delay
         '-f', outputFormat,
     ];
 
@@ -165,8 +169,7 @@ function createStreamConverter(format, onData, onEnd, onError) {
 
 /**
  * Get the Content-Type header for a given audio format
- * 
- * @param {string} format - Audio format
+ * * @param {string} format - Audio format
  * @returns {string} - MIME type
  */
 function getContentType(format) {
