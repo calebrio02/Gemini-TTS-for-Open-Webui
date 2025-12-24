@@ -16,8 +16,8 @@ A lightweight proxy server that converts OpenAI-compatible TTS API requests to G
 ### 1. Clone and Configure
 
 ```bash
-git clone https://github.com/yourusername/gemini-tts-proxy.git
-cd gemini-tts-proxy
+git clone https://github.com/calebrio02/Gemini-TTS-for-Open-Webui.git
+cd Gemini-TTS-for-Open-Webui
 ```
 
 ### 2. Set Your Gemini API Key
