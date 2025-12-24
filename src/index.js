@@ -83,6 +83,19 @@ app.post('/v1/audio/speech', async (req, res) => {
             res.set('Content-Type', contentType);
             res.set('Transfer-Encoding', 'chunked');
 
+            // 1. Create the AbortController
+            const controller = new AbortController();
+            const signal = controller.signal;
+
+            // 2. Listen for response close (Client stopped listening)
+            res.on('close', () => {
+                // FIXED: Only abort if the response wasn't finished successfully
+                if (!res.writableEnded) {
+                    logger.info('Client disconnected prematurely, aborting TTS generation');
+                    controller.abort();
+                }
+            });
+
             let bytesSent = 0;
 
             // Create streaming converter
@@ -112,12 +125,22 @@ app.post('/v1/audio/speech', async (req, res) => {
                 }
             );
 
-            // Stream from Gemini
-            await generateSpeechStream(input, geminiVoice, GEMINI_API_KEY, async (pcmChunk) => {
-                converter.write(pcmChunk);
-            });
+            // 3. Stream from Gemini with signal and abort check
+            try {
+                await generateSpeechStream(input, geminiVoice, GEMINI_API_KEY, async (pcmChunk) => {
+                    if (signal.aborted) return; // Stop writing if aborted
+                    converter.write(pcmChunk);
+                }, signal);
 
-            converter.end();
+                converter.end();
+            } catch (err) {
+                if (err.name === 'AbortError' || signal.aborted) {
+                    logger.info('Stream aborted successfully');
+                    converter.end();
+                    return;
+                }
+                throw err;
+            }
 
         } else {
             // Non-streaming response (original behavior)
