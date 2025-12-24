@@ -10,9 +10,5 @@ services:
       - PORT=3500
       - HOST=0.0.0.0
       - DEFAULT_VOICE=Kore
+      - TTS_MODE=buffered # 'streaming' or 'buffered' - buffered uses less API quota
       - LOG_LEVEL=info
-    healthcheck:
-      test: [ "CMD", "wget", "-q", "--spider", "http://localhost:3500/health" ]
-      interval: 30s
-      timeout: 10s
-      retries: 3

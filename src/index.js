@@ -20,6 +20,8 @@ const PORT = process.env.PORT || 3500;
 const HOST = process.env.HOST || '0.0.0.0';
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const DEFAULT_VOICE = process.env.DEFAULT_VOICE || 'Kore';
+const TTS_MODE = process.env.TTS_MODE || 'buffered'; // 'streaming' or 'buffered'
+const USE_STREAMING = TTS_MODE.toLowerCase() === 'streaming';
 
 // Health check endpoint
 app.get('/health', (req, res) => {
@@ -45,7 +47,7 @@ app.post('/v1/audio/speech', async (req, res) => {
             model = 'tts-1',
             response_format = 'mp3',
             speed = 1.0,
-            stream = true  // Streaming enabled by default
+            stream = USE_STREAMING  // Controlled by TTS_MODE env variable
         } = req.body;
 
         // Validate input
@@ -170,7 +172,7 @@ app.get('/v1/audio/voices', (req, res) => {
 app.listen(PORT, HOST, () => {
     logger.info(`TTS Proxy server running at http://${HOST}:${PORT}`);
     logger.info(`OpenAI TTS endpoint: http://${HOST}:${PORT}/v1/audio/speech`);
-    logger.info(`Streaming support: enabled`);
+    logger.info(`TTS Mode: ${TTS_MODE} (streaming: ${USE_STREAMING})`);
 
     if (!GEMINI_API_KEY) {
         logger.warn('GEMINI_API_KEY is not set! TTS requests will fail.');
