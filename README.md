@@ -6,7 +6,7 @@ A lightweight proxy server that converts OpenAI-compatible TTS API requests to G
 
 - 🔄 **OpenAI API Compatible** - Drop-in replacement for OpenAI's `/v1/audio/speech` endpoint
 - 🎙️ **30 Gemini Voices** - Access to all Gemini TTS voices
-- ⚡ **Streaming Support** - Low-latency audio streaming enabled by default
+- ⚡ **Streaming & Buffered Modes** - Choose between low-latency streaming or quota-friendly buffered mode
 - 🎵 **Multiple Formats** - Supports MP3, WAV, OPUS, AAC, FLAC, and PCM
 - 🐳 **Docker Ready** - Easy deployment with Docker Compose
 - 🔊 **Voice Mapping** - Automatic mapping from OpenAI voice names to Gemini voices
@@ -77,7 +77,7 @@ curl -X POST "http://localhost:3500/v1/audio/speech" \
 | `voice` | string | Voice name (OpenAI or Gemini) | `alloy` |
 | `model` | string | Model name (ignored, for compatibility) | `tts-1` |
 | `response_format` | string | Output format: mp3, wav, opus, aac, flac, pcm | `mp3` |
-| `stream` | boolean | Enable streaming response | `true` |
+| `stream` | boolean | Enable streaming response | Uses `TTS_MODE` env var |
 
 ### List Available Voices
 
@@ -118,13 +118,14 @@ You can also use Gemini voice names directly:
 | `PORT` | Server port | `3500` |
 | `HOST` | Server host | `0.0.0.0` |
 | `DEFAULT_VOICE` | Default voice if not specified | `Kore` |
+| `TTS_MODE` | TTS mode: `streaming` or `buffered` | `buffered` |
 | `LOG_LEVEL` | Logging level: debug, info, warn, error | `info` |
+
+> **💡 Tip:** Use `buffered` mode to conserve your daily API quota. Streaming mode provides lower latency but makes more API requests.
 
 ### Docker Compose
 
 ```yaml
-version: '3.8'
-
 services:
   tts-proxy:
     build: .
@@ -137,6 +138,7 @@ services:
       - PORT=3500
       - HOST=0.0.0.0
       - DEFAULT_VOICE=Kore
+      - TTS_MODE=buffered  # 'streaming' or 'buffered'
       - LOG_LEVEL=info
 ```
 
@@ -205,8 +207,14 @@ Verify your Gemini API key is correct and has access to the Gemini 2.5 Flash TTS
 ### Slow response times
 
 - Enable debug logging to see timing: `LOG_LEVEL=debug`
-- Streaming is enabled by default for lower perceived latency
+- Use `TTS_MODE=streaming` for lower perceived latency (but uses more API quota)
+- Use `TTS_MODE=buffered` to conserve API quota (default)
 - Shorter text inputs will generate faster
+
+### API quota running out quickly
+
+- Switch to `TTS_MODE=buffered` mode which makes a single API request per text
+- Streaming mode makes multiple requests and consumes quota faster
 
 ## 📄 License
 
